@@ -13,11 +13,8 @@ from datetime import datetime, timedelta
 from flask import Flask, request, jsonify, session, redirect, url_for, g, send_from_directory, render_template_string
 from functools import wraps
 import os
-import base64
 import re
-import uuid
 import sys
-from datetime import datetime, timedelta
 
 def get_iran_time_iso():
     iran_time = datetime.utcnow() + timedelta(hours=3, minutes=30)
@@ -444,6 +441,7 @@ def admin_required(f):
             return "⛔ دسترسی غیرمجاز. فقط ادمین می‌تواند وارد این بخش شود.", 403
         return f(*args, **kwargs)
     return decorated
+
 # ===== قالب HTML یکپارچه =====
 HTML = '''<!DOCTYPE html>
 <html dir="rtl" lang="fa">
@@ -782,6 +780,7 @@ HTML = '''<!DOCTYPE html>
     </script>
 </body>
 </html>'''
+
 # ===== روت‌های اصلی =====
 
 @app.route('/')
@@ -1056,6 +1055,10 @@ def register():
 def logout():
     session.clear()
     return redirect(url_for('index'))
+
+# ===== ادامه در بخش بعد =====
+# ===== ادامه کد =====
+
 # ===== داشبورد =====
 @app.route('/dashboard')
 @login_required
@@ -1251,6 +1254,7 @@ def dashboard():
     </script>
     '''
     return render_template_string(HTML, content=content, page_title='📊 داشبورد', session=session)
+
 # ===== انبارداری =====
 @app.route('/inventory')
 @login_required
@@ -1787,6 +1791,7 @@ def inventory():
     </script>
     '''
     return render_template_string(HTML, content=content, page_title='📦 انبارداری', session=session)
+
 # ===== تبادل دارو =====
 @app.route('/exchange')
 @login_required
@@ -2234,7 +2239,7 @@ def exchange():
         document.getElementById('exchangeDualView').style.display = 'none';
     }}
     
-    // ===== تغییر 3: اصلاح confirmExchangeFinal با هدرهای کش =====
+    // ===== اصلاح شده: confirmExchangeFinal =====
     function confirmExchangeFinal() {{
         var myItems = selectedItems.filter(item => item.source === 'my');
         var targetItems = selectedItems.filter(item => item.source === 'target');
@@ -2242,7 +2247,7 @@ def exchange():
         if(!selectedTargetPharmacy) {{ showToast('لطفا داروخانه هدف را انتخاب کنید', 'error'); return; }}
         var summary = '';
         if(myItems.length > 0) {{ summary += '📦 داروهایی که می‌دهم:\n'; myItems.forEach(i => summary += '- ' + i.name + ': ' + i.quantity + ' عدد\n'); }}
-        if(targetItems.length > 0) {{ summary += '\n🏥 داروهایی که می‌گیرم:\n'; targetItems.forEach(i => summary += '- ' + i.name + ': ' + i.quantity + ' عدد (از ' +        selectedTargetPharmacyName + ')\n'); }}
+        if(targetItems.length > 0) {{ summary += '\n🏥 داروهایی که می‌گیرم:\n'; targetItems.forEach(i => summary += '- ' + i.name + ': ' + i.quantity + ' عدد (از ' + selectedTargetPharmacyName + ')\n'); }}
         if(!confirm('آیا از ارسال درخواست تبادل اطمینان دارید؟\n\n' + summary)) return;
         var data = {{ target_pharmacy_id: selectedTargetPharmacy, my_items: myItems, target_items: targetItems }};
         fetch('/api/register_exchange', {{ 
@@ -2270,9 +2275,7 @@ def exchange():
         }})
         .catch(()=> showToast('❌ خطا در ارتباط با سرور', 'error'));
     }}
-
     
-    // ===== تغییر 2: اصلاح loadExchanges با هدرهای کش =====
     function loadExchanges() {{
         fetch('/api/get_exchanges', {{
             headers: {{
@@ -2291,7 +2294,6 @@ def exchange():
         }});
     }}
     
-    // ===== تغییر 3: اصلاح loadPendingExchanges با هدرهای کش =====
     function loadPendingExchanges() {{
         fetch('/api/get_pending_exchanges', {{
             headers: {{
@@ -2304,7 +2306,7 @@ def exchange():
         .then(d=>{{
             var exchanges = d.exchanges || [];
             if(exchanges.length===0){{
-                document.getElementById('pendingExchangesList').innerHTML = '<p style="text-align:center;padding:30px;color:#999">هیچ تبادل دریافتی در انتظار تایید      نیست</p>';
+                document.getElementById('pendingExchangesList').innerHTML = '<p style="text-align:center;padding:30px;color:#999">هیچ تبادل دریافتی در انتظار تایید نیست</p>';
                 return;
             }}
             var html = '';
@@ -2313,15 +2315,15 @@ def exchange():
                 var myItems = ex.my_items_json ? JSON.parse(ex.my_items_json) : [];
                 var targetItems = ex.target_items_json ? JSON.parse(ex.target_items_json) : [];
                 var sourceName = ex.source_pharmacy_name || 'داروخانه';
-                html += `<div class="exchange-card"><div class="exchange-card-header"><h4>🏥 ${sourceName} به شما پیشنهاد تبادل داده است</h4><div     class="date">${d.toLocaleDateString('fa-IR')} ${d.toLocaleTimeString('fa-IR')}</div></div>`;
+                html += `<div class="exchange-card"><div class="exchange-card-header"><h4>🏥 ${sourceName} به شما پیشنهاد تبادل داده است</h4><div class="date">${d.toLocaleDateString('fa-IR')} ${d.toLocaleTimeString('fa-IR')}</div></div>`;
                 html += '<div class="exchange-card-body">';
                 if(targetItems.length > 0) {{
-                    html += '<div class="exchange-section"><div class="exchange-section-title" style="color:#dc3545;">📦 داروهایی که از شما درخواست کرده:</div><ul     class="exchange-drug-list">';
+                    html += '<div class="exchange-section"><div class="exchange-section-title" style="color:#dc3545;">📦 داروهایی که از شما درخواست کرده:</div><ul class="exchange-drug-list">';
                     html += targetItems.map(i => '<li><strong>' + i.name + '</strong> <span>' + i.quantity + ' عدد (انقضا: ' + (i.expiry_date || '-') + ')</span></li>').join('');
                     html += '</ul></div>';
                 }}
                 if(myItems.length > 0) {{
-                    html += '<div class="exchange-section"><div class="exchange-section-title" style="color:#28a745;">📦 داروهایی که به شما می‌دهد:</div><ul     class="exchange-drug-list">';
+                    html += '<div class="exchange-section"><div class="exchange-section-title" style="color:#28a745;">📦 داروهایی که به شما می‌دهد:</div><ul class="exchange-drug-list">';
                     html += myItems.map(i => '<li><strong>' + i.name + '</strong> <span>' + i.quantity + ' عدد (انقضا: ' + (i.expiry_date || '-') + ')</span></li>').join('');
                     html += '</ul></div>';
                 }}
@@ -2342,6 +2344,7 @@ def exchange():
         renderMyExchangesList(filtered);
     }}
     
+    // ===== اصلاح شده: renderMyExchangesList =====
     function renderMyExchangesList(exchanges) {{
         const container = document.getElementById('myExchangesList');
         if (!container) return;
@@ -2350,7 +2353,7 @@ def exchange():
             return;
         }}
         let html = '<div style="max-height:500px;overflow-y:auto;">';
-        exchanges.forEach(ex => {{
+        exchanges.forEach(function(ex) {{
             const statusText = ex.status === 'confirmed' ? '✅ تایید شده' : '⏳ در انتظار';
             const statusColor = ex.status === 'confirmed' ? '#28a745' : '#ffc107';
             const date = new Date(ex.exchange_date + 'Z');
@@ -2451,6 +2454,8 @@ def exchange():
     </script>
     '''
     return render_template_string(HTML, content=content, page_title='🔄 تبادل دارو', session=session)
+
+# ===== ادامه در بخش بعدی =====
 # ===== دفتر کسری =====
 @app.route('/deficit')
 @login_required
@@ -2649,7 +2654,6 @@ def deficit():
     </script>
     '''
     return render_template_string(HTML, content=content, page_title='📋 دفتر کسری', session=session)
-
 
 # ===== پنل ادمین =====
 @app.route('/admin')
@@ -2896,6 +2900,7 @@ def admin_panel():
     </script>
     '''
     return render_template_string(HTML, content=content, page_title='👑 پنل ادمین', session=session)
+
 # ===== روت‌های ادمین API =====
 
 @app.route('/admin/approve_user/<int:user_id>', methods=['POST'])
@@ -3008,6 +3013,7 @@ def delete_announcement(announcement_id):
     db.execute("DELETE FROM announcements WHERE id = ?", (announcement_id,))
     db.commit()
     return jsonify({'success': True})
+
 # ===== API اصلی =====
 
 @app.route('/api/get_current_user')
@@ -3250,6 +3256,7 @@ logging.basicConfig(
         logging.StreamHandler()
     ]
 )
+
 @app.route('/api/get_inventory_grouped_by_expiry')
 @login_required
 def get_inventory_grouped_by_expiry():
@@ -3362,6 +3369,7 @@ def get_all_pharmacies_drugs_grouped_by_expiry():
         })
     result.sort(key=lambda x: parse_expiry_number(x['expiry_date']))
     return jsonify({'data': result})
+
 @app.route('/api/get_my_drugs_for_exchange')
 @login_required
 def get_my_drugs_for_exchange():
@@ -3379,6 +3387,7 @@ def get_pharmacy_drugs_for_exchange():
     db = get_db()
     cursor = db.execute("SELECT id, name, quantity, expiry_date, location FROM inventory WHERE user_id = ? AND quantity > 0 ORDER BY name", (pharmacy_id,))
     return jsonify({'drugs': [dict(row) for row in cursor.fetchall()]})
+
 @app.route('/api/add_inventory', methods=['POST'])
 @login_required
 def add_inventory():
@@ -3459,6 +3468,7 @@ def move_inventory():
             remaining -= take
     db.commit()
     return jsonify({'success': True})
+
 # ===== API تبادل =====
 
 @app.route('/api/register_exchange', methods=['POST'])
@@ -3626,6 +3636,7 @@ def reject_exchange(exchange_id):
                    (exchange_dict['source_pharmacy_id'], user_id))
     db.commit()
     return jsonify({'success': True})
+
 @app.route('/api/get_user_categories')
 @login_required
 def get_user_categories():
@@ -3674,6 +3685,7 @@ def toggle_hidden_items():
         db.execute(f"DELETE FROM hidden_items WHERE user_id = ? AND item_id IN ({placeholders})", (user_id, *item_ids))
     db.commit()
     return jsonify({'success': True})
+
 # ===== اجرای برنامه =====
 if __name__ == '__main__':
     print("=" * 50)
