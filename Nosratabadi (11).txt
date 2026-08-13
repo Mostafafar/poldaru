@@ -2315,7 +2315,7 @@ def exchange():
                 var myItems = ex.my_items_json ? JSON.parse(ex.my_items_json) : [];
                 var targetItems = ex.target_items_json ? JSON.parse(ex.target_items_json) : [];
                 var sourceName = ex.source_pharmacy_name || 'داروخانه';
-                html += `<div class="exchange-card"><div class="exchange-card-header"><h4>🏥 ${sourceName} به شما پیشنهاد تبادل داده است</h4><div class="date">${d.toLocaleDateString('fa-IR')} ${d.toLocaleTimeString('fa-IR')}</div></div>`;
+                html += '<div class="exchange-card"><div class="exchange-card-header"><h4>🏥 ' + sourceName + ' به شما پیشنهاد تبادل داده است</h4><div class="date">' + dateObj.toLocaleDateString('fa-IR') + ' ' + dateObj.toLocaleTimeString('fa-IR') + '</div></div>';
                 html += '<div class="exchange-card-body">';
                 if(targetItems.length > 0) {{
                     html += '<div class="exchange-section"><div class="exchange-section-title" style="color:#dc3545;">📦 داروهایی که از شما درخواست کرده:</div><ul class="exchange-drug-list">';
