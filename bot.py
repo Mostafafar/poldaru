@@ -1,5 +1,3 @@
-cat > /var/www/poldaroo/complete_pharmacy.py << 'EOF'
-# -*- coding: utf-8 -*-
 # ============================================
 # complete_pharmacy.py
 # سیستم مدیریت داروخانه با تمام امکانات
@@ -3702,4 +3700,3 @@ if __name__ == '__main__':
     print("⚠️ کاربران جدید پس از ثبت‌نام نیاز به تأیید ادمین دارند")
     print("=" * 50)
     app.run(host='0.0.0.0', port=5000, debug=False)
-EOF
