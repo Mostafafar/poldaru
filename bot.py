@@ -15,28 +15,7 @@ const fs = require('fs');
 const app = express();
 
 // ===== اضافه کردن این بخش =====
-app.set('trust proxy', true);
 
-app.use((req, res, next) => {
-    // پشتیبانی از Cloudflare
-    if (req.headers['cf-connecting-ip']) {
-        req.ip = req.headers['cf-connecting-ip'];
-    }
-    
-    // اصلاح پروتکل
-    const proto = req.headers['x-forwarded-proto'];
-    if (proto === 'https') {
-        req.protocol = 'https';
-        req.secure = true;
-    }
-    
-    // هدرهای ضد کش
-    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-    res.setHeader('Pragma', 'no-cache');
-    res.setHeader('Expires', '0');
-    
-    next();
-});
 // ===== پایان اضافه کردن =====
 const PORT = 5000;
 
