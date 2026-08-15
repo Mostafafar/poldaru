@@ -14,9 +14,10 @@ import os
 import re
 import sys
 
+# ===== اصلاح 1: تابع get_iran_time_iso با فرمت صحیح =====
 def get_iran_time_iso():
     iran_time = datetime.utcnow() + timedelta(hours=3, minutes=30)
-    return iran_time.isoformat()
+    return iran_time.strftime('%Y-%m-%d %H:%M:%S')
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'pharmacy-secret-key-2024')
@@ -246,7 +247,7 @@ def init_db():
         batch_number TEXT,
         expiry_date TEXT,
         manufacturer TEXT,
-        location TEXT,
+        registered_by TEXT,
         created_at TEXT,
         invoice_number TEXT,
         supplier TEXT,
@@ -346,6 +347,10 @@ def init_db():
     except:
         pass
     try:
+        db.execute("ALTER TABLE inventory ADD COLUMN registered_by TEXT DEFAULT ''")
+    except:
+        pass
+    try:
         db.execute("ALTER TABLE exchanges ADD COLUMN sender_categories TEXT DEFAULT ''")
     except:
         pass
@@ -398,23 +403,23 @@ def init_db():
             cursor = db.execute("SELECT COUNT(*) as count FROM inventory WHERE user_id = ?", (user_id,))
             if cursor.fetchone()['count'] == 0:
                 sample_data = [
-                    ('آسپرین', 100, '2026.03', 'warehouse'),
-                    ('آسپرین', 50, '2025.12', 'pharmacy'),
-                    ('ایبوپروفن', 75, '2025.09', 'pharmacy'),
-                    ('ایبوپروفن', 30, '2026.01', 'warehouse'),
-                    ('آمپی سیلین', 40, '2025.06', 'warehouse'),
-                    ('آمپی سیلین', 20, '2025.08', 'pharmacy'),
-                    ('دیازپام', 60, '2026.02', 'pharmacy'),
-                    ('دیازپام', 25, '2026.04', 'warehouse'),
-                    ('لوزارتان', 45, '2026.05', 'pharmacy'),
-                    ('مترونیدازول', 80, '2025.11', 'warehouse'),
-                    ('سفالکسین', 35, '2025.10', 'pharmacy'),
-                    ('آموکسی سیلین', 120, '2026.08', 'warehouse'),
+                    ('آسپرین', 100, '2026.03', 'admin'),
+                    ('آسپرین', 50, '2025.12', 'admin'),
+                    ('ایبوپروفن', 75, '2025.09', 'admin'),
+                    ('ایبوپروفن', 30, '2026.01', 'admin'),
+                    ('آمپی سیلین', 40, '2025.06', 'admin'),
+                    ('آمپی سیلین', 20, '2025.08', 'admin'),
+                    ('دیازپام', 60, '2026.02', 'admin'),
+                    ('دیازپام', 25, '2026.04', 'admin'),
+                    ('لوزارتان', 45, '2026.05', 'admin'),
+                    ('مترونیدازول', 80, '2025.11', 'admin'),
+                    ('سفالکسین', 35, '2025.10', 'admin'),
+                    ('آموکسی سیلین', 120, '2026.08', 'admin'),
                 ]
-                for name, qty, expiry, loc in sample_data:
-                    db.execute('''INSERT INTO inventory (user_id, name, quantity, expiry_date, location, created_at)
+                for name, qty, expiry, registered_by in sample_data:
+                    db.execute('''INSERT INTO inventory (user_id, name, quantity, expiry_date, registered_by, created_at)
                                   VALUES (?, ?, ?, ?, ?, ?)''',
-                               (user_id, name, qty, expiry, loc, datetime.now().isoformat()))
+                               (user_id, name, qty, expiry, registered_by, datetime.now().isoformat()))
     
     cleanup_expired_items()
     db.commit()
@@ -677,11 +682,10 @@ HTML = '''<!DOCTYPE html>
         .pharmacy-group-body.show { display: block; }
         .drug-item { display: flex; align-items: center; gap: 10px; padding: 5px 8px; border-bottom: 1px solid #f0f0f0; flex-wrap: wrap; font-size: 13px; }
         .drug-item:last-child { border-bottom: none; }
-        .drug-item .drug-name { font-weight: bold; flex: 1; min-width: 80px; }
+        .drug-item .drug-name { font-weight: bold; flex: 1; min-width: 80px; cursor: pointer; color: #007bff; }
+        .drug-item .drug-name:hover { text-decoration: underline; }
         .drug-item .drug-qty { color: #555; }
-        .drug-item .drug-location { font-size: 10px; padding: 2px 6px; border-radius: 10px; }
-        .location-warehouse { background: #cfe2ff; color: #084298; }
-        .location-pharmacy { background: #d1e7dd; color: #0a3622; }
+        .drug-item .drug-registered { font-size: 10px; padding: 2px 6px; border-radius: 10px; background: #e3f2fd; color: #084298; }
         .toast-message {
             position: fixed;
             bottom: 20px;
@@ -702,6 +706,7 @@ HTML = '''<!DOCTYPE html>
         .toast-message.info { background: #17a2b8; }
         .drug-item .drug-actions { display: flex; gap: 4px; align-items: center; }
         .drug-item .drug-actions button { padding: 2px 6px; font-size: 10px; border-radius: 4px; }
+        .drug-date { font-size: 11px; color: #999; }
         @media (max-width: 768px) {
             .sidebar { width: 55px; }
             .sidebar .menu-text { display: none; }
@@ -1054,7 +1059,6 @@ def logout():
     session.clear()
     return redirect(url_for('index'))
 
-# ===== ادامه در بخش بعد =====
 # ===== ادامه کد =====
 
 # ===== داشبورد =====
@@ -1253,10 +1257,19 @@ def dashboard():
     '''
     return render_template_string(HTML, content=content, page_title='📊 داشبورد', session=session)
 
-# ===== انبارداری =====
+# ===== انبارداری (اصلاح شده) =====
 @app.route('/inventory')
 @login_required
 def inventory():
+    # دریافت لیست کاربران برای انتخاب ثبت‌کننده
+    db = get_db()
+    cursor = db.execute("SELECT id, username, pharmacy_display_name FROM users WHERE is_approved = 1")
+    users = cursor.fetchall()
+    user_options = ''
+    for u in users:
+        selected = 'selected' if u['id'] == session['user_id'] else ''
+        user_options += f'<option value="{u["username"]}" {selected}>{u["pharmacy_display_name"]} ({u["username"]})</option>'
+    
     content = f'''
     <div class="card">
         <div class="card-title">📦 ثبت فاکتور جدید</div>
@@ -1269,58 +1282,10 @@ def inventory():
             <div style="flex:1;min-width:200px;">
                 {get_year_month_selectors()}
             </div>
-            <select id="location">
-                <option value="warehouse">انبار</option>
-                <option value="pharmacy">داروخانه</option>
+            <select id="registeredBy">
+                {user_options}
             </select>
-            <input type="text" id="supplier" placeholder="تامین کننده">
-            <input type="text" id="price" placeholder="قیمت خرید">
             <button onclick="addInventory()">ثبت فاکتور</button>
-        </div>
-    </div>
-    
-    <div class="card">
-        <div class="card-title">💸 ثبت فروش</div>
-        <div class="form-row">
-            <div class="search-container" style="flex:2">
-                <input type="text" id="saleDrugName" placeholder="نام دارو" onkeyup="searchDrugsForSale(this.value)" autocomplete="off">
-                <div id="suggestionsSale" class="suggestions-list"></div>
-            </div>
-            <input type="number" id="saleQty" placeholder="تعداد" value="1">
-            <div style="flex:1;min-width:200px;">
-                {get_year_month_selectors()}
-            </div>
-            <input type="text" id="customerName" placeholder="نام مشتری">
-            <input type="text" id="salePrice" placeholder="قیمت فروش">
-            <select id="saleLocation">
-                <option value="warehouse">انبار</option>
-                <option value="pharmacy">داروخانه</option>
-            </select>
-            <button onclick="registerSale()" class="btn-success">ثبت فروش</button>
-        </div>
-    </div>
-    
-    <div class="card">
-        <div class="card-title">🔄 جابجایی دارو</div>
-        <div class="form-row">
-            <div class="search-container" style="flex:2">
-                <input type="text" id="moveDrug" placeholder="نام دارو" onkeyup="searchDrugsMove(this.value)" autocomplete="off">
-                <div id="suggestionsMove" class="suggestions-list"></div>
-            </div>
-            <input type="number" id="moveQty" placeholder="تعداد" value="1">
-            <div style="flex:1;min-width:200px;">
-                {get_year_month_selectors()}
-            </div>
-            <select id="moveFromLocation">
-                <option value="warehouse">انبار</option>
-                <option value="pharmacy">داروخانه</option>
-            </select>
-            <span style="font-size:18px">➡</span>
-            <select id="moveToLocation">
-                <option value="warehouse">انبار</option>
-                <option value="pharmacy">داروخانه</option>
-            </select>
-            <button onclick="moveDrug()">انتقال</button>
         </div>
     </div>
     
@@ -1346,6 +1311,7 @@ def inventory():
     let currentFilter = '';
     let showHidden = false;
     let hiddenIds = new Set();
+    let editingDrugId = null;
     
     try {{
         var saved = localStorage.getItem('hiddenIds_' + USER_ID);
@@ -1437,7 +1403,7 @@ def inventory():
                 if(!ph || !ph.drugs) return;
                 ph.drugs.forEach(d => {{
                     if(ids.includes(d.id) && (!d.hidden || showHidden)) {{
-                        text += "• " + d.name + ": " + d.quantity + " عدد (" + (d.location === 'warehouse' ? 'انبار' : 'داروخانه') + ") - انقضا: " + (d.expiry_date || 'نامشخص') + "\\n";
+                        text += "• " + d.name + ": " + d.quantity + " عدد (ثبت‌کننده: " + (d.registered_by || 'نامشخص') + ") - انقضا: " + (d.expiry_date || 'نامشخص') + "\\n";
                     }}
                 }});
             }});
@@ -1525,6 +1491,64 @@ def inventory():
             .catch(() => showToast('❌ خطا در ارتباط با سرور', 'error'));
     }}
     
+    // ===== ویرایش سریع دارو با کلیک روی نام =====
+    function editDrug(drugId, drugName, expiryDate, quantity, registeredBy) {{
+        // پر کردن فرم با اطلاعات دارو
+        document.getElementById('invName').value = drugName;
+        document.getElementById('invQty').value = quantity;
+        
+        // تنظیم تاریخ انقضا در سلکتورها
+        if(expiryDate && expiryDate.includes('.')) {{
+            var parts = expiryDate.split('.');
+            var year = parseInt(parts[0]);
+            var month = parseInt(parts[1]);
+            
+            // پیدا کردن سلکتور سال و ماه در فرم
+            var yearSelect = document.querySelector('.expiry-year');
+            var monthSelect = document.querySelector('.expiry-month');
+            var preview = document.querySelector('.expiry-preview');
+            
+            if(yearSelect) {{
+                for(var i=0; i<yearSelect.options.length; i++) {{
+                    if(parseInt(yearSelect.options[i].value) === year) {{
+                        yearSelect.selectedIndex = i;
+                        break;
+                    }}
+                }}
+            }}
+            if(monthSelect) {{
+                var monthStr = month.toString().padStart(2, '0');
+                for(var i=0; i<monthSelect.options.length; i++) {{
+                    if(monthSelect.options[i].value === monthStr) {{
+                        monthSelect.selectedIndex = i;
+                        break;
+                    }}
+                }}
+            }}
+            if(preview) {{
+                preview.textContent = year + '.' + month.toString().padStart(2, '0');
+            }}
+        }}
+        
+        // تنظیم کاربر ثبت‌کننده
+        var registeredSelect = document.getElementById('registeredBy');
+        if(registeredSelect && registeredBy) {{
+            for(var i=0; i<registeredSelect.options.length; i++) {{
+                if(registeredSelect.options[i].value === registeredBy) {{
+                    registeredSelect.selectedIndex = i;
+                    break;
+                }}
+            }}
+        }}
+        
+        // ذخیره ID دارو برای ویرایش (بعداً در addInventory استفاده می‌شود)
+        editingDrugId = drugId;
+        
+        // اسکرول به فرم
+        document.querySelector('.card').scrollIntoView({{ behavior: 'smooth' }});
+        showToast('✏️ دارو برای ویرایش آماده شد. تعداد و تاریخ را تغییر دهید و ثبت کنید.', 'info');
+    }}
+    
     function renderInventory() {{
         var container = document.getElementById('inventoryContainer');
         if (!container) return;
@@ -1572,14 +1596,15 @@ def inventory():
                 html += '</div>';
                 html += '<div class="pharmacy-group-body ' + isPhOpen + '">';
                 visibleDrugs.forEach(d => {{
-                    var locText = d.location === 'warehouse' ? 'انبار' : 'داروخانه';
-                    var locClass = d.location === 'warehouse' ? 'location-warehouse' : 'location-pharmacy';
+                    // تاریخ ثبت به شمسی
+                    var jalaliDate = d.created_at_jalali || '-';
                     html += '<div class="drug-item">';
                     html += '<input type="checkbox" class="item-checkbox" data-id="' + d.id + '">';
-                    html += '<span class="drug-name">' + d.name + '</span>';
+                    // نام دارو قابل کلیک برای ویرایش
+                    html += '<span class="drug-name" onclick="editDrug(' + d.id + ', \\'' + d.name.replace(/'/g, "\\\\'") + '\\', \\'' + (d.expiry_date || '') + '\\', ' + d.quantity + ', \\'' + (d.registered_by || '') + '\\')">' + d.name + '</span>';
                     html += '<span class="drug-qty">' + d.quantity + ' عدد</span>';
-                    html += '<span class="drug-location ' + locClass + '">' + locText + '</span>';
-                    html += '<span style="font-size:11px;color:#999;">انقضا: ' + (d.expiry_date || '-') + '</span>';
+                    html += '<span class="drug-registered">👤 ' + (d.registered_by || 'نامشخص') + '</span>';
+                    html += '<span class="drug-date">📅 ' + jalaliDate + '</span>';
                     if(d.hidden) html += '<span style="font-size:11px;color:#dc3545;">🙈 هاید</span>';
                     html += '<div class="drug-actions">';
                     html += '<button onclick="deleteSingleItem(' + d.id + ')" class="btn-danger btn-sm">🗑️</button>';
@@ -1634,45 +1659,7 @@ def inventory():
             .catch(() => {{ suggestions.style.display = 'none'; }});
     }}
     
-    function searchDrugsForSale(query) {{
-        var suggestions = document.getElementById('suggestionsSale');
-        if(query.length < 2) {{ suggestions.style.display = 'none'; return; }}
-        fetch('/api/search_with_stock?q=' + encodeURIComponent(query))
-            .then(r => r.json())
-            .then(data => {{
-                if(data.length > 0) {{
-                    var html = '';
-                    data.forEach(drug => {{
-                        html += '<div onclick="selectDrugForSale(\\'' + drug.name + '\\')"><strong>' + drug.name + '</strong><div class="stock-info">🏭 انبار: ' + drug.warehouse_qty + ' | 🏪 داروخانه: ' + drug.pharmacy_qty + ' | 📅 نزدیک‌ترین انقضا: ' + (drug.nearest_expiry || '-') + '</div></div>';
-                    }});
-                    suggestions.innerHTML = html;
-                    suggestions.style.display = 'block';
-                }} else {{ suggestions.style.display = 'none'; }}
-            }})
-            .catch(() => {{ suggestions.style.display = 'none'; }});
-    }}
-    
-    function searchDrugsMove(query) {{
-        var suggestions = document.getElementById('suggestionsMove');
-        if(query.length < 2) {{ suggestions.style.display = 'none'; return; }}
-        fetch('/api/search_with_stock?q=' + encodeURIComponent(query))
-            .then(r => r.json())
-            .then(data => {{
-                if(data.length > 0) {{
-                    var html = '';
-                    data.forEach(drug => {{
-                        html += '<div onclick="selectDrugMove(\\'' + drug.name + '\\')"><strong>' + drug.name + '</strong><div class="stock-info">🏭 انبار: ' + drug.warehouse_qty + ' | 🏪 داروخانه: ' + drug.pharmacy_qty + ' | 📅 نزدیک‌ترین انقضا: ' + (drug.nearest_expiry || '-') + '</div></div>';
-                    }});
-                    suggestions.innerHTML = html;
-                    suggestions.style.display = 'block';
-                }} else {{ suggestions.style.display = 'none'; }}
-            }})
-            .catch(() => {{ suggestions.style.display = 'none'; }});
-    }}
-    
     function selectDrugInv(name) {{ document.getElementById('invName').value = name; document.getElementById('suggestionsInv').style.display = 'none'; }}
-    function selectDrugForSale(name) {{ document.getElementById('saleDrugName').value = name; document.getElementById('suggestionsSale').style.display = 'none'; }}
-    function selectDrugMove(name) {{ document.getElementById('moveDrug').value = name; document.getElementById('suggestionsMove').style.display = 'none'; }}
     
     function getExpiryFromSelectors(formRow) {{
         var yearEl = formRow ? formRow.querySelector('.expiry-year') : null;
@@ -1687,17 +1674,23 @@ def inventory():
         var qty = document.getElementById('invQty').value;
         var formRow = document.getElementById('invName').closest('.form-row');
         var expiry = getExpiryFromSelectors(formRow);
+        var registeredBy = document.getElementById('registeredBy').value;
+        
         if(!name || !qty || !expiry) {{
             showToast('نام دارو، تعداد و تاریخ انقضا اجباری است', 'error');
             return;
         }}
+        
         var fd = new FormData();
         fd.append('name', name);
         fd.append('quantity', qty);
         fd.append('expiry_date', expiry);
-        fd.append('location', document.getElementById('location').value);
-        fd.append('supplier', document.getElementById('supplier').value);
-        fd.append('purchase_price', document.getElementById('price').value);
+        fd.append('registered_by', registeredBy);
+        // اگر در حالت ویرایش هستیم، ID دارو را ارسال می‌کنیم
+        if(editingDrugId) {{
+            fd.append('edit_id', editingDrugId);
+        }}
+        
         fetch('/api/add_inventory', {{
             method: 'POST',
             body: fd
@@ -1706,11 +1699,18 @@ def inventory():
         .then(data => {{
             if(data.success) {{ 
                 showToast('✅ دارو ثبت شد', 'success');
+                editingDrugId = null;
                 loadInventory();
                 document.getElementById('invName').value = '';
                 document.getElementById('invQty').value = '1';
-                document.getElementById('supplier').value = '';
-                document.getElementById('price').value = '';
+                // تنظیم مجدد ثبت‌کننده به کاربر فعلی
+                var registeredSelect = document.getElementById('registeredBy');
+                for(var i=0; i<registeredSelect.options.length; i++) {{
+                    if(registeredSelect.options[i].value === '') {{
+                        registeredSelect.selectedIndex = i;
+                        break;
+                    }}
+                }}
             }} else {{ 
                 showToast('خطا: ' + data.error, 'error'); 
             }} 
@@ -1718,51 +1718,6 @@ def inventory():
         .catch(err => {{
             showToast('❌ خطا در ارتباط با سرور', 'error');
         }});
-    }}
-    
-    function registerSale() {{
-        var name = document.getElementById('saleDrugName').value;
-        var qty = document.getElementById('saleQty').value;
-        var formRow = document.getElementById('saleDrugName').closest('.form-row');
-        var expiry = getExpiryFromSelectors(formRow);
-        if(!name || !qty || !expiry) {{ showToast('نام دارو، تعداد و تاریخ انقضا اجباری است', 'error'); return; }}
-        fetch('/api/register_sale', {{ method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify({{
-            drug_name: name, quantity: parseInt(qty), expiry_date: expiry,
-            customer_name: document.getElementById('customerName').value,
-            price: parseFloat(document.getElementById('salePrice').value) || 0,
-            location: document.getElementById('saleLocation').value
-        }}) }})
-        .then(r=>r.json())
-        .then(res => {{ 
-            if(res.success) {{ 
-                showToast('✅ فروش ثبت شد', 'success'); 
-                loadInventory();
-            }} else {{ 
-                showToast('خطا: ' + res.error, 'error'); 
-            }} 
-        }})
-        .catch(() => showToast('❌ خطا در ارتباط با سرور', 'error'));
-    }}
-    
-    function moveDrug() {{
-        var name = document.getElementById('moveDrug').value;
-        var qty = document.getElementById('moveQty').value;
-        var fromLoc = document.getElementById('moveFromLocation').value;
-        var toLoc = document.getElementById('moveToLocation').value;
-        var formRow = document.getElementById('moveDrug').closest('.form-row');
-        var expiry = getExpiryFromSelectors(formRow);
-        if(!name || !qty || !expiry){{ showToast('نام دارو، تعداد و تاریخ انقضا را وارد کنید', 'error'); return; }}
-        fetch('/api/move_inventory', {{ method:'POST', headers:{{'Content-Type':'application/json'}}, body:JSON.stringify({{name:name, quantity:parseInt(qty), from_location:fromLoc, to_location:toLoc, expiry_date:expiry}}) }})
-            .then(r=>r.json())
-            .then(data=>{{ 
-                if(data.success) {{ 
-                    showToast('✅ انتقال انجام شد', 'success'); 
-                    loadInventory();
-                }} else {{ 
-                    showToast('خطا: '+data.error, 'error'); 
-                }} 
-            }})
-            .catch(() => showToast('❌ خطا در ارتباط با سرور', 'error'));
     }}
     
     document.addEventListener('change', function(e) {{
@@ -1781,7 +1736,7 @@ def inventory():
     
     document.addEventListener('click', function(e) {{
         if(!e.target.closest('.search-container')) {{
-            ['suggestionsInv','suggestionsSale','suggestionsMove'].forEach(id => {{ var s = document.getElementById(id); if(s) s.style.display = 'none'; }});
+            ['suggestionsInv'].forEach(id => {{ var s = document.getElementById(id); if(s) s.style.display = 'none'; }});
         }}
     }});
     
@@ -1820,6 +1775,145 @@ def exchange():
         cat_checks += f'<label><input type="checkbox" value="{key}" {checked}> {label}</label>'
     
     content = f'''
+    <style>
+    .exchange-tab {{
+        display: flex;
+        gap: 8px;
+        margin-bottom: 15px;
+        border-bottom: 2px solid #e0e0e0;
+        padding-bottom: 10px;
+    }}
+    .exchange-tab button {{
+        background: none;
+        color: #1a1a1a;
+        border: none;
+        padding: 8px 16px;
+        font-size: 13px;
+        cursor: pointer;
+        border-radius: 0;
+        transition: all 0.3s;
+    }}
+    .exchange-tab button:hover {{
+        background: #f0f0f0;
+    }}
+    .exchange-tab button.active {{
+        border-bottom: 3px solid #1a1a1a;
+        font-weight: bold;
+        color: #1a1a1a;
+    }}
+    .tab-content {{
+        display: none;
+    }}
+    .tab-content.active {{
+        display: block;
+    }}
+    .category-checkboxes {{
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        padding: 10px;
+        background: #f8f9fa;
+        border-radius: 10px;
+    }}
+    .category-checkboxes label {{
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        cursor: pointer;
+        padding: 5px 10px;
+        background: white;
+        border-radius: 6px;
+        border: 1px solid #ddd;
+        font-size: 13px;
+    }}
+    .category-checkboxes label:hover {{
+        background: #e9ecef;
+    }}
+    .exchange-drug-item {{
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 8px 10px;
+        border-bottom: 1px solid #eee;
+        cursor: pointer;
+        border-radius: 4px;
+        font-size: 13px;
+        transition: background 0.2s;
+    }}
+    .exchange-drug-item:hover {{
+        background: #f5f5f5;
+    }}
+    .exchange-drug-item.selected {{
+        background: #d4edda !important;
+    }}
+    .exchange-drug-item input[type="checkbox"] {{
+        cursor: pointer;
+    }}
+    .exchange-drug-info {{
+        flex: 1;
+    }}
+    .exchange-drug-name {{
+        font-weight: bold;
+        font-size: 14px;
+    }}
+    .exchange-drug-detail {{
+        font-size: 12px;
+        color: #666;
+        margin-top: 2px;
+    }}
+    .exchange-qty-input {{
+        width: 60px;
+        padding: 4px 6px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        font-size: 13px;
+        text-align: center;
+    }}
+    .exchange-list-box {{
+        flex: 1;
+        min-width: 250px;
+        background: white;
+        border-radius: 10px;
+        overflow: hidden;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        border: 1px solid #e0e0e0;
+    }}
+    .exchange-list-header {{
+        background: #1a1a1a;
+        color: white;
+        padding: 10px;
+        text-align: center;
+        font-weight: bold;
+        font-size: 13px;
+        cursor: pointer;
+        transition: background 0.3s;
+    }}
+    .exchange-list-header.active {{
+        background: #28a745;
+    }}
+    .exchange-list-header:hover {{
+        opacity: 0.9;
+    }}
+    .exchange-list-items {{
+        max-height: 350px;
+        overflow-y: auto;
+        padding: 5px;
+    }}
+    .exchange-dual-container {{
+        display: flex;
+        gap: 15px;
+        flex-wrap: wrap;
+    }}
+    @media (max-width: 768px) {{
+        .exchange-dual-container {{
+            flex-direction: column;
+        }}
+        .exchange-list-box {{
+            min-width: unset;
+        }}
+    }}
+    </style>
+
     <div class="exchange-tab">
         <button class="active" onclick="showExchangeTab('register')">🔄 ثبت تبادل</button>
         <button onclick="showExchangeTab('list')">📋 تبادلات من</button>
@@ -1829,7 +1923,7 @@ def exchange():
     <div id="registerTab" class="tab-content active">
         <div class="card">
             <div class="card-title">📋 دسته‌بندی مصرفی</div>
-            <div class="category-checkboxes" id="categoryCheckboxes" style="display:flex;flex-wrap:wrap;gap:10px;padding:10px;background:#f8f9fa;border-radius:10px;">
+            <div class="category-checkboxes" id="categoryCheckboxes">
                 {cat_checks}
             </div>
             <button onclick="saveUserCategories()" class="btn-success" style="margin-top:10px;">💾 ذخیره دسته‌بندی</button>
@@ -2237,16 +2331,15 @@ def exchange():
         document.getElementById('exchangeDualView').style.display = 'none';
     }}
     
-    // ===== اصلاح شده: confirmExchangeFinal =====
     function confirmExchangeFinal() {{
         var myItems = selectedItems.filter(item => item.source === 'my');
         var targetItems = selectedItems.filter(item => item.source === 'target');
         if(myItems.length === 0 && targetItems.length === 0) {{ showToast('هیچ دارویی برای تبادل انتخاب نشده است', 'error'); return; }}
         if(!selectedTargetPharmacy) {{ showToast('لطفا داروخانه هدف را انتخاب کنید', 'error'); return; }}
         var summary = '';
-        if(myItems.length > 0) {{ summary += '📦 داروهایی که می‌دهم:\n'; myItems.forEach(i => summary += '- ' + i.name + ': ' + i.quantity + ' عدد\n'); }}
-        if(targetItems.length > 0) {{ summary += '\n🏥 داروهایی که می‌گیرم:\n'; targetItems.forEach(i => summary += '- ' + i.name + ': ' + i.quantity + ' عدد (از ' + selectedTargetPharmacyName + ')\n'); }}
-        if(!confirm('آیا از ارسال درخواست تبادل اطمینان دارید؟\n\n' + summary)) return;
+        if(myItems.length > 0) {{ summary += '📦 داروهایی که می‌دهم:\\n'; myItems.forEach(i => summary += '- ' + i.name + ': ' + i.quantity + ' عدد\\n'); }}
+        if(targetItems.length > 0) {{ summary += '\\n🏥 داروهایی که می‌گیرم:\\n'; targetItems.forEach(i => summary += '- ' + i.name + ': ' + i.quantity + ' عدد (از ' + selectedTargetPharmacyName + ')\\n'); }}
+        if(!confirm('آیا از ارسال درخواست تبادل اطمینان دارید؟\\n\\n' + summary)) return;
         var data = {{ target_pharmacy_id: selectedTargetPharmacy, my_items: myItems, target_items: targetItems }};
         fetch('/api/register_exchange', {{ 
             method: 'POST', 
@@ -2313,7 +2406,7 @@ def exchange():
                 var myItems = ex.my_items_json ? JSON.parse(ex.my_items_json) : [];
                 var targetItems = ex.target_items_json ? JSON.parse(ex.target_items_json) : [];
                 var sourceName = ex.source_pharmacy_name || 'داروخانه';
-                html += '<div class="exchange-card"><div class="exchange-card-header"><h4>🏥 ' + sourceName + ' به شما پیشنهاد تبادل داده است</h4><div class="date">' + dateObj.toLocaleDateString('fa-IR') + ' ' + dateObj.toLocaleTimeString('fa-IR') + '</div></div>';
+                html += '<div class="exchange-card"><div class="exchange-card-header"><h4>🏥 ' + sourceName + ' به شما پیشنهاد تبادل داده است</h4><div class="date">' + d.toLocaleDateString('fa-IR') + ' ' + d.toLocaleTimeString('fa-IR') + '</div></div>';
                 html += '<div class="exchange-card-body">';
                 if(targetItems.length > 0) {{
                     html += '<div class="exchange-section"><div class="exchange-section-title" style="color:#dc3545;">📦 داروهایی که از شما درخواست کرده:</div><ul class="exchange-drug-list">';
@@ -2342,7 +2435,6 @@ def exchange():
         renderMyExchangesList(filtered);
     }}
     
-    // ===== اصلاح شده: renderMyExchangesList =====
     function renderMyExchangesList(exchanges) {{
         const container = document.getElementById('myExchangesList');
         if (!container) return;
@@ -2453,7 +2545,6 @@ def exchange():
     '''
     return render_template_string(HTML, content=content, page_title='🔄 تبادل دارو', session=session)
 
-# ===== ادامه در بخش بعدی =====
 # ===== دفتر کسری =====
 @app.route('/deficit')
 @login_required
@@ -3071,7 +3162,7 @@ def api_get_pharmacy_drugs():
     if not pharmacy_id:
         return jsonify({'drugs': []})
     db = get_db()
-    cursor = db.execute("SELECT id, name, quantity, expiry_date, location FROM inventory WHERE user_id = ? AND quantity > 0", (pharmacy_id,))
+    cursor = db.execute("SELECT id, name, quantity, expiry_date FROM inventory WHERE user_id = ? AND quantity > 0", (pharmacy_id,))
     return jsonify({'drugs': [dict(row) for row in cursor.fetchall()]})
 
 @app.route('/api/get_all_pharmacies')
@@ -3138,43 +3229,8 @@ def api_delete_inventory_items():
     db.commit()
     return jsonify({'success': True})
 
-@app.route('/api/register_sale', methods=['POST'])
-@login_required
-def register_sale():
-    db = get_db()
-    user_id = session['user_id']
-    data = request.get_json()
-    drug_name = data.get('drug_name')
-    quantity = data.get('quantity')
-    expiry_date = data.get('expiry_date')
-    sale_date = data.get('sale_date')
-    customer_name = data.get('customer_name', '')
-    price = data.get('price', 0)
-    location = data.get('location', 'pharmacy')
-    if not drug_name or not quantity or not expiry_date:
-        return jsonify({'success': False, 'error': 'نام دارو، تعداد و تاریخ انقضا اجباری است'})
-    if not validate_expiry_date(expiry_date):
-        return jsonify({'success': False, 'error': 'فرمت تاریخ انقضا نامعتبر است'})
-    cursor = db.execute("SELECT * FROM inventory WHERE user_id = ? AND name = ? AND location = ? AND expiry_date = ?", (user_id, drug_name, location, expiry_date))
-    items = cursor.fetchall()
-    total_available = sum(i['quantity'] for i in items)
-    if total_available < quantity:
-        return jsonify({'success': False, 'error': f'موجودی دارو کافی نیست. فقط {total_available} عدد موجود است'})
-    remaining = quantity
-    for item in items:
-        if remaining <= 0:
-            break
-        take = min(item['quantity'], remaining)
-        if take > 0:
-            db.execute("UPDATE inventory SET quantity = quantity - ? WHERE id = ?", (take, item['id']))
-            if item['quantity'] - take == 0:
-                db.execute("DELETE FROM inventory WHERE id = ?", (item['id'],))
-            remaining -= take
-    db.execute('''INSERT INTO sales (user_id, drug_name, quantity, sale_date, expiry_date, customer_name, price, location, created_at)
-                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)''',
-               (user_id, drug_name, quantity, sale_date if sale_date else None, expiry_date, customer_name, price, location, datetime.now().isoformat()))
-    db.commit()
-    return jsonify({'success': True})
+# ===== حذف API های فروش و جابجایی =====
+# register_sale و move_inventory حذف شدند
 
 @app.route('/api/add_drug', methods=['POST'])
 @login_required
@@ -3263,7 +3319,7 @@ def get_inventory_grouped_by_expiry():
     cursor = db.execute("SELECT item_id FROM hidden_items WHERE user_id = ?", (user_id,))
     hidden_ids = [row['item_id'] for row in cursor.fetchall()]
     cursor = db.execute("""
-        SELECT id, name, quantity, expiry_date, location, created_at 
+        SELECT id, name, quantity, expiry_date, registered_by, created_at 
         FROM inventory 
         WHERE user_id = ? AND quantity > 0
         ORDER BY 
@@ -3293,8 +3349,9 @@ def get_inventory_grouped_by_expiry():
                 'name': d['name'],
                 'quantity': d['quantity'],
                 'expiry_date': d['expiry_date'],
-                'location': d['location'],
-                'location_text': 'انبار' if d['location'] == 'warehouse' else 'داروخانه',
+                'registered_by': d.get('registered_by', 'نامشخص'),
+                'created_at': d.get('created_at'),
+                'created_at_jalali': convert_date_to_jalali(d.get('created_at', '')),
                 'hidden': d['id'] in hidden_ids
             } for d in drugs]
         }]
@@ -3373,7 +3430,7 @@ def get_all_pharmacies_drugs_grouped_by_expiry():
 def get_my_drugs_for_exchange():
     user_id = session['user_id']
     db = get_db()
-    cursor = db.execute("SELECT id, name, quantity, expiry_date, location FROM inventory WHERE user_id = ? AND quantity > 0", (user_id,))
+    cursor = db.execute("SELECT id, name, quantity, expiry_date FROM inventory WHERE user_id = ? AND quantity > 0", (user_id,))
     return jsonify({'drugs': [dict(row) for row in cursor.fetchall()]})
 
 @app.route('/api/get_pharmacy_drugs_for_exchange')
@@ -3383,7 +3440,7 @@ def get_pharmacy_drugs_for_exchange():
     if not pharmacy_id:
         return jsonify({'drugs': []})
     db = get_db()
-    cursor = db.execute("SELECT id, name, quantity, expiry_date, location FROM inventory WHERE user_id = ? AND quantity > 0 ORDER BY name", (pharmacy_id,))
+    cursor = db.execute("SELECT id, name, quantity, expiry_date FROM inventory WHERE user_id = ? AND quantity > 0 ORDER BY name", (pharmacy_id,))
     return jsonify({'drugs': [dict(row) for row in cursor.fetchall()]})
 
 @app.route('/api/add_inventory', methods=['POST'])
@@ -3396,27 +3453,37 @@ def add_inventory():
         name = request.form.get('name')
         quantity = int(request.form.get('quantity', 0))
         expiry_date = request.form.get('expiry_date')
-        location = request.form.get('location', 'warehouse')
-        supplier = request.form.get('supplier', '')
-        price_str = request.form.get('purchase_price', '0')
-        logging.info(f"📦 Data: name={name}, qty={quantity}, expiry={expiry_date}, loc={location}")
+        registered_by = request.form.get('registered_by', session.get('username', ''))
+        edit_id = request.form.get('edit_id')
+        
+        logging.info(f"📦 Data: name={name}, qty={quantity}, expiry={expiry_date}, registered_by={registered_by}, edit_id={edit_id}")
+        
         if not name or quantity <= 0 or not expiry_date:
             logging.error("❌ Missing required fields")
             return jsonify({'success': False, 'error': 'نام، تعداد و تاریخ انقضا اجباری است'})
         if not validate_expiry_date(expiry_date):
             logging.error(f"❌ Invalid expiry date: {expiry_date}")
             return jsonify({'success': False, 'error': 'تاریخ انقضا نامعتبر است'})
-        cursor = db.execute("SELECT id, quantity FROM inventory WHERE user_id = ? AND name = ? AND expiry_date = ? AND location = ?", 
-                           (user_id, name, expiry_date, location))
+        
+        # اگر edit_id وجود دارد، یعنی در حالت ویرایش هستیم
+        if edit_id:
+            # حذف آیتم قبلی
+            db.execute("DELETE FROM inventory WHERE id = ? AND user_id = ?", (edit_id, user_id))
+            logging.info(f"🔄 Deleting old item id={edit_id} for edit")
+        
+        # بررسی وجود دارو با همان مشخصات
+        cursor = db.execute("SELECT id, quantity FROM inventory WHERE user_id = ? AND name = ? AND expiry_date = ?", 
+                           (user_id, name, expiry_date))
         existing = cursor.fetchone()
         if existing:
             logging.info(f"🔄 Updating existing drug id={existing['id']}, old_qty={existing['quantity']}, add={quantity}")
-            db.execute("UPDATE inventory SET quantity = quantity + ? WHERE id = ?", (quantity, existing['id']))
+            db.execute("UPDATE inventory SET quantity = quantity + ?, registered_by = ? WHERE id = ?", 
+                      (quantity, registered_by, existing['id']))
         else:
             logging.info(f"➕ Inserting new drug")
-            db.execute('''INSERT INTO inventory (user_id, name, quantity, expiry_date, location, created_at, supplier, purchase_price)
-                          VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
-                       (user_id, name, quantity, expiry_date, location, datetime.now().isoformat(), supplier, float(price_str) if price_str else 0))
+            db.execute('''INSERT INTO inventory (user_id, name, quantity, expiry_date, registered_by, created_at)
+                          VALUES (?, ?, ?, ?, ?, ?)''',
+                       (user_id, name, quantity, expiry_date, registered_by, datetime.now().isoformat()))
         db.commit()
         logging.info(f"✅ Successfully added/updated inventory for {name}")
         return jsonify({'success': True})
@@ -3425,47 +3492,6 @@ def add_inventory():
         import traceback
         logging.error(traceback.format_exc())
         return jsonify({'success': False, 'error': str(e)})
-
-@app.route('/api/move_inventory', methods=['POST'])
-@login_required
-def move_inventory():
-    db = get_db()
-    user_id = session['user_id']
-    req = request.get_json()
-    name = req.get('name')
-    quantity = req.get('quantity')
-    from_location = req.get('from_location')
-    to_location = req.get('to_location')
-    expiry_date = req.get('expiry_date')
-    if not name or not quantity or not expiry_date:
-        return jsonify({'success': False, 'error': 'نام، تعداد و تاریخ انقضا اجباری است'})
-    if not validate_expiry_date(expiry_date):
-        return jsonify({'success': False, 'error': 'تاریخ انقضا نامعتبر است'})
-    cursor = db.execute("SELECT * FROM inventory WHERE user_id = ? AND name = ? AND location = ? AND expiry_date = ?", (user_id, name, from_location, expiry_date))
-    sources = cursor.fetchall()
-    total_available = sum(s['quantity'] for s in sources)
-    if total_available < quantity:
-        return jsonify({'success': False, 'error': f'موجودی ناکافی. فقط {total_available} عدد موجود است'})
-    remaining = quantity
-    for source in sources:
-        if remaining <= 0:
-            break
-        take = min(source['quantity'], remaining)
-        if take > 0:
-            db.execute("UPDATE inventory SET quantity = quantity - ? WHERE id = ?", (take, source['id']))
-            if source['quantity'] - take == 0:
-                db.execute("DELETE FROM inventory WHERE id = ?", (source['id'],))
-            cursor = db.execute("SELECT id FROM inventory WHERE user_id = ? AND name = ? AND expiry_date = ? AND location = ?", (user_id, name, expiry_date, to_location))
-            dest = cursor.fetchone()
-            if dest:
-                db.execute("UPDATE inventory SET quantity = quantity + ? WHERE id = ?", (take, dest['id']))
-            else:
-                db.execute('''INSERT INTO inventory (user_id, name, quantity, expiry_date, location, created_at)
-                              VALUES (?, ?, ?, ?, ?, ?)''',
-                           (user_id, name, take, expiry_date, to_location, datetime.now().isoformat()))
-            remaining -= take
-    db.commit()
-    return jsonify({'success': True})
 
 # ===== API تبادل =====
 
@@ -3603,14 +3629,14 @@ def confirm_exchange(exchange_id):
             drug_name = item.get('name')
             expiry_date = item.get('expiry_date', '')
             quantity = item.get('quantity')
-            cursor = db.execute("SELECT * FROM inventory WHERE user_id = ? AND name = ? AND expiry_date = ? AND location = 'pharmacy'", (user_id, drug_name, expiry_date))
+            cursor = db.execute("SELECT * FROM inventory WHERE user_id = ? AND name = ? AND expiry_date = ?", (user_id, drug_name, expiry_date))
             inv_item = cursor.fetchone()
             if inv_item:
                 db.execute("UPDATE inventory SET quantity = quantity + ? WHERE id = ?", (quantity, inv_item['id']))
             else:
-                db.execute('''INSERT INTO inventory (user_id, name, quantity, expiry_date, location, created_at)
-                              VALUES (?, ?, ?, ?, ?, ?)''',
-                           (user_id, drug_name, quantity, expiry_date, 'pharmacy', get_iran_time_iso()))
+                db.execute('''INSERT INTO inventory (user_id, name, quantity, expiry_date, created_at)
+                              VALUES (?, ?, ?, ?, ?)''',
+                           (user_id, drug_name, quantity, expiry_date, get_iran_time_iso()))
     db.execute("UPDATE exchanges SET status = 'confirmed' WHERE id = ?", (exchange_id,))
     if exchange_dict.get('source_pharmacy_id'):
         db.execute("UPDATE exchanges SET status = 'confirmed' WHERE source_pharmacy_id = ? AND target_pharmacy_id = ? AND status = 'pending'",
