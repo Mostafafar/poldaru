@@ -39,6 +39,14 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 DATABASE = 'pharmacy.db'
 
+def to_persian_number(num):
+    """تبدیل اعداد انگلیسی به فارسی"""
+    persian_digits = {
+        '0': '۰', '1': '۱', '2': '۲', '3': '۳', '4': '۴',
+        '5': '۵', '6': '۶', '7': '۷', '8': '۸', '9': '۹'
+    }
+    return ''.join(persian_digits.get(c, c) for c in str(num))
+
 def gregorian_to_jalali(gy, gm, gd):
     g_days_in_month = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
     j_days_in_month = [31, 31, 31, 31, 31, 31, 30, 30, 30, 30, 30, 29]
@@ -66,7 +74,8 @@ def gregorian_to_jalali(gy, gm, gd):
     else:
         if jd > 30:
             jd = 30
-    return f"{jy:04d}/{jm:02d}/{jd:02d}"
+    # برگرداندن تاریخ با اعداد فارسی
+    return f"{to_persian_number(jy)}/{to_persian_number(jm)}/{to_persian_number(jd)}"
 
 def convert_date_to_jalali(date_str):
     if not date_str:
@@ -658,9 +667,58 @@ HTML = '''<!DOCTYPE html>
         .exchange-drug-item { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-bottom: 1px solid #eee; cursor: pointer; border-radius: 4px; font-size: 13px; }
         .exchange-drug-item:hover { background: #f5f5f5; }
         .exchange-drug-item.selected { background: #d4edda; }
-        .exchange-card { background: white; border-radius: 10px; margin-bottom: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); overflow: hidden; border: 1px solid #e0e0e0; }
-        .exchange-card-header { background: #1a1a1a; color: white; padding: 10px 14px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 6px; font-size: 13px; }
-        .exchange-card-footer { padding: 8px 14px; background: #f8f9fa; display: flex; gap: 8px; justify-content: flex-end; border-top: 1px solid #e0e0e0; }
+        .exchange-card {
+            background: white;
+            border-radius: 10px;
+            margin-bottom: 12px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            overflow: hidden;
+            border: 1px solid #e0e0e0;
+        }
+        .exchange-card-header {
+            background: #1a1a1a;
+            color: white;
+            padding: 10px 14px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 6px;
+            font-size: 13px;
+        }
+        .exchange-card-body {
+            padding: 12px 14px;
+        }
+        .exchange-card-footer {
+            padding: 8px 14px;
+            background: #f8f9fa;
+            display: flex;
+            gap: 8px;
+            justify-content: flex-end;
+            border-top: 1px solid #e0e0e0;
+        }
+        .exchange-section {
+            margin-bottom: 10px;
+        }
+        .exchange-section-title {
+            font-weight: bold;
+            font-size: 13px;
+            margin-bottom: 6px;
+        }
+        .exchange-drug-list {
+            list-style: none;
+            padding: 0;
+        }
+        .exchange-drug-list li {
+            padding: 4px 0;
+            border-bottom: 1px solid #f0f0f0;
+            font-size: 13px;
+            display: flex;
+            justify-content: space-between;
+        }
+        .exchange-drug-list li:last-child {
+            border-bottom: none;
+        }
         .status-pending { background: #ffc107; color: #1a1a1a; padding: 2px 8px; border-radius: 20px; font-size: 11px; }
         .status-confirmed { background: #28a745; color: white; padding: 2px 8px; border-radius: 20px; font-size: 11px; }
         .drugs-columns { display: flex; gap: 15px; flex-wrap: wrap; }
@@ -707,6 +765,14 @@ HTML = '''<!DOCTYPE html>
         .drug-item .drug-actions { display: flex; gap: 4px; align-items: center; }
         .drug-item .drug-actions button { padding: 2px 6px; font-size: 10px; border-radius: 4px; }
         .drug-date { font-size: 11px; color: #999; }
+        .name-display {
+            background: #e8f5e9;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            color: #2e7d32;
+            font-weight: bold;
+        }
         @media (max-width: 768px) {
             .sidebar { width: 55px; }
             .sidebar .menu-text { display: none; }
@@ -890,6 +956,7 @@ def login():
             session['is_full_user'] = user['is_full_user']
             session['pharmacy_display_name'] = user['pharmacy_display_name']
             session['is_approved'] = is_approved
+            session['registered_name'] = user['pharmacy_display_name']  # تنظیم نام پیش‌فرض
             return redirect(url_for('index'))
         
         return '''
@@ -1257,18 +1324,12 @@ def dashboard():
     '''
     return render_template_string(HTML, content=content, page_title='📊 داشبورد', session=session)
 
-# ===== انبارداری (اصلاح شده) =====
+# ===== انبارداری (اصلاح شده با دکمه ثبت نام) =====
 @app.route('/inventory')
 @login_required
 def inventory():
-    # دریافت لیست کاربران برای انتخاب ثبت‌کننده
-    db = get_db()
-    cursor = db.execute("SELECT id, username, pharmacy_display_name FROM users WHERE is_approved = 1")
-    users = cursor.fetchall()
-    user_options = ''
-    for u in users:
-        selected = 'selected' if u['id'] == session['user_id'] else ''
-        user_options += f'<option value="{u["username"]}" {selected}>{u["pharmacy_display_name"]} ({u["username"]})</option>'
+    # دریافت نام ثبت‌کننده از session یا تنظیم پیش‌فرض
+    registered_name = session.get('registered_name', session.get('pharmacy_display_name', 'کاربر'))
     
     content = f'''
     <div class="card">
@@ -1282,10 +1343,10 @@ def inventory():
             <div style="flex:1;min-width:200px;">
                 {get_year_month_selectors()}
             </div>
-            <select id="registeredBy">
-                {user_options}
-            </select>
             <button onclick="addInventory()">ثبت فاکتور</button>
+            <button onclick="changeRegisteredName()" class="btn-primary" style="display:flex;align-items:center;gap:6px;">
+                👤 <span id="registeredNameDisplay">{registered_name}</span>
+            </button>
         </div>
     </div>
     
@@ -1491,6 +1552,29 @@ def inventory():
             .catch(() => showToast('❌ خطا در ارتباط با سرور', 'error'));
     }}
     
+    // ===== تغییر نام ثبت‌کننده =====
+    function changeRegisteredName() {{
+        var currentName = document.getElementById('registeredNameDisplay').textContent;
+        var newName = prompt('نام خود را وارد کنید:', currentName);
+        if(newName && newName.trim() !== '') {{
+            fetch('/api/set_registered_name', {{
+                method: 'POST',
+                headers: {{'Content-Type': 'application/json'}},
+                body: JSON.stringify({{name: newName.trim()}})
+            }})
+            .then(r=>r.json())
+            .then(data=>{{
+                if(data.success) {{
+                    document.getElementById('registeredNameDisplay').textContent = newName.trim();
+                    showToast('✅ نام ثبت‌کننده تغییر یافت', 'success');
+                }} else {{
+                    showToast('❌ خطا: ' + data.error, 'error');
+                }}
+            }})
+            .catch(() => showToast('❌ خطا در ارتباط با سرور', 'error'));
+        }}
+    }}
+    
     // ===== ویرایش سریع دارو با کلیک روی نام =====
     function editDrug(drugId, drugName, expiryDate, quantity, registeredBy) {{
         // پر کردن فرم با اطلاعات دارو
@@ -1503,7 +1587,6 @@ def inventory():
             var year = parseInt(parts[0]);
             var month = parseInt(parts[1]);
             
-            // پیدا کردن سلکتور سال و ماه در فرم
             var yearSelect = document.querySelector('.expiry-year');
             var monthSelect = document.querySelector('.expiry-month');
             var preview = document.querySelector('.expiry-preview');
@@ -1530,21 +1613,12 @@ def inventory():
             }}
         }}
         
-        // تنظیم کاربر ثبت‌کننده
-        var registeredSelect = document.getElementById('registeredBy');
-        if(registeredSelect && registeredBy) {{
-            for(var i=0; i<registeredSelect.options.length; i++) {{
-                if(registeredSelect.options[i].value === registeredBy) {{
-                    registeredSelect.selectedIndex = i;
-                    break;
-                }}
-            }}
+        // تنظیم نام ثبت‌کننده
+        if(registeredBy) {{
+            document.getElementById('registeredNameDisplay').textContent = registeredBy;
         }}
         
-        // ذخیره ID دارو برای ویرایش (بعداً در addInventory استفاده می‌شود)
         editingDrugId = drugId;
-        
-        // اسکرول به فرم
         document.querySelector('.card').scrollIntoView({{ behavior: 'smooth' }});
         showToast('✏️ دارو برای ویرایش آماده شد. تعداد و تاریخ را تغییر دهید و ثبت کنید.', 'info');
     }}
@@ -1596,11 +1670,9 @@ def inventory():
                 html += '</div>';
                 html += '<div class="pharmacy-group-body ' + isPhOpen + '">';
                 visibleDrugs.forEach(d => {{
-                    // تاریخ ثبت به شمسی
                     var jalaliDate = d.created_at_jalali || '-';
                     html += '<div class="drug-item">';
                     html += '<input type="checkbox" class="item-checkbox" data-id="' + d.id + '">';
-                    // نام دارو قابل کلیک برای ویرایش
                     html += '<span class="drug-name" onclick="editDrug(' + d.id + ', \\'' + d.name.replace(/'/g, "\\\\'") + '\\', \\'' + (d.expiry_date || '') + '\\', ' + d.quantity + ', \\'' + (d.registered_by || '') + '\\')">' + d.name + '</span>';
                     html += '<span class="drug-qty">' + d.quantity + ' عدد</span>';
                     html += '<span class="drug-registered">👤 ' + (d.registered_by || 'نامشخص') + '</span>';
@@ -1674,7 +1746,7 @@ def inventory():
         var qty = document.getElementById('invQty').value;
         var formRow = document.getElementById('invName').closest('.form-row');
         var expiry = getExpiryFromSelectors(formRow);
-        var registeredBy = document.getElementById('registeredBy').value;
+        var registeredBy = document.getElementById('registeredNameDisplay').textContent;
         
         if(!name || !qty || !expiry) {{
             showToast('نام دارو، تعداد و تاریخ انقضا اجباری است', 'error');
@@ -1686,7 +1758,6 @@ def inventory():
         fd.append('quantity', qty);
         fd.append('expiry_date', expiry);
         fd.append('registered_by', registeredBy);
-        // اگر در حالت ویرایش هستیم، ID دارو را ارسال می‌کنیم
         if(editingDrugId) {{
             fd.append('edit_id', editingDrugId);
         }}
@@ -1703,14 +1774,6 @@ def inventory():
                 loadInventory();
                 document.getElementById('invName').value = '';
                 document.getElementById('invQty').value = '1';
-                // تنظیم مجدد ثبت‌کننده به کاربر فعلی
-                var registeredSelect = document.getElementById('registeredBy');
-                for(var i=0; i<registeredSelect.options.length; i++) {{
-                    if(registeredSelect.options[i].value === '') {{
-                        registeredSelect.selectedIndex = i;
-                        break;
-                    }}
-                }}
             }} else {{ 
                 showToast('خطا: ' + data.error, 'error'); 
             }} 
@@ -2406,16 +2469,24 @@ def exchange():
                 var myItems = ex.my_items_json ? JSON.parse(ex.my_items_json) : [];
                 var targetItems = ex.target_items_json ? JSON.parse(ex.target_items_json) : [];
                 var sourceName = ex.source_pharmacy_name || 'داروخانه';
-                html += '<div class="exchange-card"><div class="exchange-card-header"><h4>🏥 ' + sourceName + ' به شما پیشنهاد تبادل داده است</h4><div class="date">' + d.toLocaleDateString('fa-IR') + ' ' + d.toLocaleTimeString('fa-IR') + '</div></div>';
+                html += '<div class="exchange-card">';
+                html += '<div class="exchange-card-header">';
+                html += '<h4>🏥 ' + sourceName + ' به شما پیشنهاد تبادل داده است</h4>';
+                html += '<div class="date">' + d.toLocaleDateString('fa-IR') + ' ' + d.toLocaleTimeString('fa-IR') + '</div>';
+                html += '</div>';
                 html += '<div class="exchange-card-body">';
                 if(targetItems.length > 0) {{
                     html += '<div class="exchange-section"><div class="exchange-section-title" style="color:#dc3545;">📦 داروهایی که از شما درخواست کرده:</div><ul class="exchange-drug-list">';
-                    html += targetItems.map(i => '<li><strong>' + i.name + '</strong> <span>' + i.quantity + ' عدد (انقضا: ' + (i.expiry_date || '-') + ')</span></li>').join('');
+                    targetItems.forEach(i => {{
+                        html += '<li><strong>' + i.name + '</strong> <span>' + i.quantity + ' عدد (انقضا: ' + (i.expiry_date || '-') + ')</span></li>';
+                    }});
                     html += '</ul></div>';
                 }}
                 if(myItems.length > 0) {{
                     html += '<div class="exchange-section"><div class="exchange-section-title" style="color:#28a745;">📦 داروهایی که به شما می‌دهد:</div><ul class="exchange-drug-list">';
-                    html += myItems.map(i => '<li><strong>' + i.name + '</strong> <span>' + i.quantity + ' عدد (انقضا: ' + (i.expiry_date || '-') + ')</span></li>').join('');
+                    myItems.forEach(i => {{
+                        html += '<li><strong>' + i.name + '</strong> <span>' + i.quantity + ' عدد (انقضا: ' + (i.expiry_date || '-') + ')</span></li>';
+                    }});
                     html += '</ul></div>';
                 }}
                 html += '</div>';
@@ -2442,7 +2513,7 @@ def exchange():
             container.innerHTML = '<p style="text-align:center;padding:30px;color:#999;">هیچ تبادلی ثبت نشده است</p>';
             return;
         }}
-        let html = '<div style="max-height:500px;overflow-y:auto;">';
+        let html = '';
         exchanges.forEach(function(ex) {{
             const statusText = ex.status === 'confirmed' ? '✅ تایید شده' : '⏳ در انتظار';
             const statusColor = ex.status === 'confirmed' ? '#28a745' : '#ffc107';
@@ -2451,28 +2522,44 @@ def exchange():
             if (ex.source_pharmacy_id && ex.source_pharmacy_id != 1) {{
                 pharmacyName = ex.source_pharmacy_name || pharmacyName;
             }}
-            html += '<div style="border:1px solid #e0e0e0;border-radius:8px;padding:12px;margin:8px 0;background:white;box-shadow:0 1px 3px rgba(0,0,0,0.05);">';
-            html += '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">';
-            html += '<div><strong style="font-size:14px;">💊 ' + ex.drug_name + '</strong>';
-            html += '<span style="margin:0 8px;color:#666;">|</span>';
-            html += '<span>📦 ' + ex.quantity + ' عدد</span></div>';
+            var myItems = ex.my_items_json ? JSON.parse(ex.my_items_json) : [];
+            var targetItems = ex.target_items_json ? JSON.parse(ex.target_items_json) : [];
+            
+            html += '<div class="exchange-card">';
+            html += '<div class="exchange-card-header">';
+            html += '<h4>💊 ' + ex.drug_name + '</h4>';
             html += '<div><span style="background:' + statusColor + ';color:white;padding:4px 12px;border-radius:20px;font-size:12px;font-weight:bold;">' + statusText + '</span></div>';
             html += '</div>';
-            html += '<div style="font-size:12px;color:#999;margin-top:6px;display:flex;gap:12px;flex-wrap:wrap;">';
-            html += '<span>🏥 ' + pharmacyName + '</span>';
-            html += '<span>📅 ' + date.toLocaleDateString('fa-IR') + ' ' + date.toLocaleTimeString('fa-IR') + '</span>';
+            html += '<div class="exchange-card-body">';
+            html += '<div style="font-size:12px;color:#999;margin-bottom:10px;">';
+            html += '🏥 ' + pharmacyName + ' | 📅 ' + date.toLocaleDateString('fa-IR') + ' ' + date.toLocaleTimeString('fa-IR');
             if (ex.expiry_date) {{
-                html += '<span>📅 انقضا: ' + ex.expiry_date + '</span>';
+                html += ' | 📅 انقضا: ' + ex.expiry_date;
+            }}
+            html += '</div>';
+            
+            if(myItems.length > 0) {{
+                html += '<div class="exchange-section"><div class="exchange-section-title" style="color:#28a745;">📦 داروهایی که می‌دهم:</div><ul class="exchange-drug-list">';
+                myItems.forEach(i => {{
+                    html += '<li><strong>' + i.name + '</strong> <span>' + i.quantity + ' عدد (انقضا: ' + (i.expiry_date || '-') + ')</span></li>';
+                }});
+                html += '</ul></div>';
+            }}
+            if(targetItems.length > 0) {{
+                html += '<div class="exchange-section"><div class="exchange-section-title" style="color:#dc3545;">📦 داروهایی که می‌گیرم:</div><ul class="exchange-drug-list">';
+                targetItems.forEach(i => {{
+                    html += '<li><strong>' + i.name + '</strong> <span>' + i.quantity + ' عدد (انقضا: ' + (i.expiry_date || '-') + ')</span></li>';
+                }});
+                html += '</ul></div>';
             }}
             html += '</div>';
             if (ex.status === 'pending') {{
-                html += '<div style="margin-top:8px;">';
-                html += '<button onclick="cancelExchange(' + ex.id + ')" class="btn-danger btn-sm" style="font-size:11px;padding:2px 8px;">❌ لغو درخواست</button>';
+                html += '<div class="exchange-card-footer">';
+                html += '<button onclick="cancelExchange(' + ex.id + ')" class="btn-danger">❌ لغو درخواست</button>';
                 html += '</div>';
             }}
             html += '</div>';
         }});
-        html += '</div>';
         container.innerHTML = html;
     }}
     
@@ -3105,6 +3192,16 @@ def delete_announcement(announcement_id):
 
 # ===== API اصلی =====
 
+@app.route('/api/set_registered_name', methods=['POST'])
+@login_required
+def api_set_registered_name():
+    data = request.get_json()
+    name = data.get('name')
+    if not name or name.strip() == '':
+        return jsonify({'success': False, 'error': 'نام معتبر وارد کنید'})
+    session['registered_name'] = name.strip()
+    return jsonify({'success': True})
+
 @app.route('/api/get_current_user')
 @login_required
 def api_get_current_user():
@@ -3120,7 +3217,8 @@ def api_get_current_user():
         'username': user['username'],
         'is_full_user': user['is_full_user'],
         'pharmacy_display_name': user['pharmacy_display_name'],
-        'is_approved': is_approved
+        'is_approved': is_approved,
+        'registered_name': session.get('registered_name', user['pharmacy_display_name'])
     })
 
 @app.route('/api/get_drugs')
@@ -3228,9 +3326,6 @@ def api_delete_inventory_items():
     db.execute(f"DELETE FROM inventory WHERE id IN ({placeholders}) AND user_id = ?", (*item_ids, user_id))
     db.commit()
     return jsonify({'success': True})
-
-# ===== حذف API های فروش و جابجایی =====
-# register_sale و move_inventory حذف شدند
 
 @app.route('/api/add_drug', methods=['POST'])
 @login_required
@@ -3453,7 +3548,7 @@ def add_inventory():
         name = request.form.get('name')
         quantity = int(request.form.get('quantity', 0))
         expiry_date = request.form.get('expiry_date')
-        registered_by = request.form.get('registered_by', session.get('username', ''))
+        registered_by = request.form.get('registered_by', session.get('registered_name', session.get('pharmacy_display_name', 'کاربر')))
         edit_id = request.form.get('edit_id')
         
         logging.info(f"📦 Data: name={name}, qty={quantity}, expiry={expiry_date}, registered_by={registered_by}, edit_id={edit_id}")
@@ -3465,13 +3560,10 @@ def add_inventory():
             logging.error(f"❌ Invalid expiry date: {expiry_date}")
             return jsonify({'success': False, 'error': 'تاریخ انقضا نامعتبر است'})
         
-        # اگر edit_id وجود دارد، یعنی در حالت ویرایش هستیم
         if edit_id:
-            # حذف آیتم قبلی
             db.execute("DELETE FROM inventory WHERE id = ? AND user_id = ?", (edit_id, user_id))
             logging.info(f"🔄 Deleting old item id={edit_id} for edit")
         
-        # بررسی وجود دارو با همان مشخصات
         cursor = db.execute("SELECT id, quantity FROM inventory WHERE user_id = ? AND name = ? AND expiry_date = ?", 
                            (user_id, name, expiry_date))
         existing = cursor.fetchone()
